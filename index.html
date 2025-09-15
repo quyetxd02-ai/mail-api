@@ -11,9 +11,8 @@
     h2 { margin-bottom: 20px; }
     button { font-size: 15px; padding: 10px 16px; margin: 6px; border: none; border-radius: 5px; cursor: pointer; color: white; }
     #syncApiButton { background: #17a2b8; }
-    #copyButton { background: #28a745; }
     #deleteListButton { background: #dc3545; }
-    #emailOutput { margin-top: 12px; font-size: 15px; padding: 8px; width: 240px; border: 1px solid #ccc; border-radius: 5px; }
+    #emailOutput { margin-top: 12px; font-size: 15px; padding: 8px; width: 260px; border: 1px solid #ccc; border-radius: 5px; }
     #count { margin-top: 10px; font-weight: bold; }
     #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #333; color: white; padding: 10px 20px; border-radius: 5px; display: none; }
   </style>
@@ -22,16 +21,15 @@
   <h2>📧 Email Manager</h2>
 
   <button id="syncApiButton">📡 Đồng bộ từ API</button>
-  <button id="copyButton">📋 Copy Email</button>
   <button id="deleteListButton">🗑️ Xóa danh sách</button>
 
-  <input type="text" id="emailOutput" readonly placeholder="Email sẽ hiển thị ở đây">
+  <input type="text" id="emailOutput" readonly placeholder="Email mới sẽ hiển thị ở đây">
   <p id="count">📊 Số email còn lại: 0</p>
 
   <div id="toast"></div>
 
 <script>
-  // Firebase config
+  // ✅ Firebase config
   const firebaseConfig = {
     apiKey: "AIzaSyBr3rKT-fDNQc-rz84k6haRMs_WfXoU6kI",
     authDomain: "mail-9c51f.firebaseapp.com",
@@ -47,6 +45,7 @@
 
   let emailList = [];
 
+  // Toast hiển thị nhanh
   function showToast(msg) {
     const t = document.getElementById("toast");
     t.textContent = msg;
@@ -58,49 +57,64 @@
     document.getElementById("count").textContent = `📊 Số email còn lại: ${emailList.length}`;
   }
 
-  // 📡 Đồng bộ từ API
+  // 📡 Lấy email mới từ API + copy
   async function fetchEmailsFromAPI() {
     try {
-      const response = await fetch("https://example.com/api/emails", {
-        headers: { "Authorization": "Bearer e55b0f45e746fd65b1c7d01f99596fdccM7KGCYvfXA1rO680a5nJiIRskoEUBqV" }
+      const response = await fetch("https://mail72h.com/api/buy_product", {
+        method: "POST",
+        headers: {
+          "Authorization": "Bearer e55b0f45e746fd65b1c7d01f99596fdccM7KGCYvfXA1rO680a5nJiIRskoEUBqV",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          product_id: 29,
+          quantity: 1
+        })
       });
-      if (!response.ok) throw new Error("API lỗi");
-      const data = await response.json();
-      const fetchedEmails = data.emails || [];
-      if (fetchedEmails.length === 0) { showToast("⚠️ Không có email mới"); return; }
 
-      emailRef.transaction(list => {
-        const updated = list ? list.slice() : [];
-        fetchedEmails.forEach(e => { if (!updated.includes(e)) updated.push(e); });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`API lỗi: ${response.status}, ${text}`);
+      }
+
+      const data = await response.json();
+      console.log("Kết quả API:", data);
+
+      if (!data.data || !Array.isArray(data.data) || data.data.length === 0) {
+        showToast("⚠️ API không trả về email hợp lệ");
+        return;
+      }
+
+      // Lấy email (sau dấu | nếu có)
+      const parts = data.data[0].split("|");
+      const newEmail = parts[1] ? parts[1] : parts[0];
+
+      // ✅ Copy vào clipboard
+      navigator.clipboard.writeText(newEmail).then(()=>{
+        showToast(`📋 Đã copy: ${newEmail}`);
+      });
+
+      // ✅ Đưa xuống input dưới cùng
+      document.getElementById("emailOutput").value = newEmail;
+
+      // ✅ Lưu Firebase
+      emailRef.transaction(currentList => {
+        const updated = currentList ? currentList.slice() : [];
+        if (!updated.includes(newEmail)) updated.push(newEmail);
         return updated;
-      }, (err, ok, snap) => {
-        if (ok) {
-          emailList = snap.val() || [];
+      }, (error, committed, snapshot) => {
+        if (!error && committed) {
+          emailList = snapshot.val() || [];
           updateCount();
-          showToast(`✅ Thêm ${fetchedEmails.length} email`);
         }
       });
-    } catch (err) { showToast("⚠️ Lỗi API"); }
+
+    } catch (err) {
+      showToast("⚠️ Lỗi khi gọi API: " + err.message);
+    }
   }
 
-  // 📋 Copy email ngẫu nhiên
-  function copyEmail() {
-    if (emailList.length === 0) { showToast("⚠️ Hết email"); return; }
-    const idx = Math.floor(Math.random() * emailList.length);
-    const email = emailList[idx];
-    document.getElementById("emailOutput").value = email;
-    navigator.clipboard.writeText(email);
-    emailRef.transaction(list => {
-      if (!list) return [];
-      list.splice(idx,1);
-      return list;
-    }, (err, ok, snap) => {
-      if (ok) { emailList = snap.val()||[]; updateCount(); }
-    });
-    showToast(`📋 Đã copy: ${email}`);
-  }
-
-  // 🗑️ Xóa danh sách
+  // 🗑️ Xóa toàn bộ email
   function clearList() {
     if (!confirm("Xóa toàn bộ email?")) return;
     emailRef.set([], err=>{
@@ -108,8 +122,8 @@
     });
   }
 
+  // Event nút
   document.getElementById("syncApiButton").onclick = fetchEmailsFromAPI;
-  document.getElementById("copyButton").onclick = copyEmail;
   document.getElementById("deleteListButton").onclick = clearList;
 
   // 🔄 Lắng nghe Firebase
